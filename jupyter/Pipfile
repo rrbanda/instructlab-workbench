@@ -1,0 +1,20 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+# JupyterLab packages
+jupyterlab = "~=4.2.0"
+jupyter_bokeh = "~=4.0.4"
+jupyter-resource-usage = "~=1.0.2"
+jupyter-server-proxy = "~=4.1.2"
+jupyterlab-git = "~=0.50.0"
+jupyterlab-lsp = "~=5.1.0"
+jupyterlab-widgets = "~=3.0.10"
+nbgitpuller = "~=1.2.1"
+
+[dev-packages]
+
+[requires]
+python_version = "3.11"
