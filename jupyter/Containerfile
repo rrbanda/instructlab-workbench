@@ -1,4 +1,4 @@
-FROM ghcr.io/tiran/instructlab-containers:cuda-ubi9
+FROM localhost/instructlab:cuda
 
 # Fix image permissions
 USER 0
