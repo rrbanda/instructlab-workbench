@@ -1,17 +1,171 @@
-FROM localhost/instructlab:cuda
+FROM registry.access.redhat.com/ubi9/python-311 as cuda-runtime
 
-# Fix image permissions, just in case
+###########
+# Base OS #
+###########
+
 USER 0
 
-RUN chown -R 1001:0 /opt/app-root && \
-    chmod -R g+w /opt/app-root && \
-    fix-permissions /opt/app-root -P
+RUN dnf install -y https://download.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+    dnf config-manager --set-enabled epel && \
+    dnf update -y && \
+    yum -y clean all --enablerepo='*' && \
+    rm -rf /var/cache/dnf && \
+    find /var/log -type f -name "*.log" -exec rm -f {} \;
 
-####################
-# CodeServer       #
-####################
+#####################################################################################################
+# CUDA 12.4.1 Layer, from https://gitlab.com/nvidia/container-images/cuda/-/tree/master/dist/12.4.1 #
+#####################################################################################################
 
-ARG CODESERVER_VERSION=v4.89.1
+ARG CUDA_VERSION="12.4.1"
+
+# Base section
+
+ENV NVARCH x86_64
+ENV NVIDIA_REQUIRE_CUDA "cuda>=12.4 brand=tesla,driver>=470,driver<471 brand=unknown,driver>=470,driver<471 brand=nvidia,driver>=470,driver<471 brand=nvidiartx,driver>=470,driver<471 brand=geforce,driver>=470,driver<471 brand=geforcertx,driver>=470,driver<471 brand=quadro,driver>=470,driver<471 brand=quadrortx,driver>=470,driver<471 brand=titan,driver>=470,driver<471 brand=titanrtx,driver>=470,driver<471 brand=tesla,driver>=525,driver<526 brand=unknown,driver>=525,driver<526 brand=nvidia,driver>=525,driver<526 brand=nvidiartx,driver>=525,driver<526 brand=geforce,driver>=525,driver<526 brand=geforcertx,driver>=525,driver<526 brand=quadro,driver>=525,driver<526 brand=quadrortx,driver>=525,driver<526 brand=titan,driver>=525,driver<526 brand=titanrtx,driver>=525,driver<526 brand=tesla,driver>=535,driver<536 brand=unknown,driver>=535,driver<536 brand=nvidia,driver>=535,driver<536 brand=nvidiartx,driver>=535,driver<536 brand=geforce,driver>=535,driver<536 brand=geforcertx,driver>=535,driver<536 brand=quadro,driver>=535,driver<536 brand=quadrortx,driver>=535,driver<536 brand=titan,driver>=535,driver<536 brand=titanrtx,driver>=535,driver<536"
+ENV NV_CUDA_CUDART_VERSION 12.4.127-1
+
+COPY cuda.repo-x86_64 /etc/yum.repos.d/cuda.repo
+RUN NVIDIA_GPGKEY_SUM=d0664fbbdb8c32356d45de36c5984617217b2d0bef41b93ccecd326ba3b80c87 && \
+    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/rhel9/${NVARCH}/D42D0685.pub | sed '/^Version/d' > /etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA && \
+    echo "$NVIDIA_GPGKEY_SUM  /etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA" | sha256sum -c --strict -
+
+ENV CUDA_VERSION 12.4.1
+
+# For libraries in the cuda-compat-* package: https://docs.nvidia.com/cuda/eula/index.html#attachment-a
+RUN dnf install -y \
+    cuda-cudart-12-4-${NV_CUDA_CUDART_VERSION} \
+    cuda-compat-12-4 \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf/*
+
+# nvidia-docker 1.0
+RUN echo "/usr/local/nvidia/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
+    echo "/usr/local/nvidia/lib64" >> /etc/ld.so.conf.d/nvidia.conf
+
+ENV PATH /usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+
+COPY NGC-DL-CONTAINER-LICENSE /
+
+# nvidia-container-runtime
+ENV NVIDIA_VISIBLE_DEVICES all
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+
+# Runtime section
+
+ENV NV_CUDA_LIB_VERSION 12.4.1-1
+
+ENV NV_NVTX_VERSION 12.4.127-1
+ENV NV_LIBNPP_VERSION 12.2.5.30-1
+ENV NV_LIBNPP_PACKAGE libnpp-12-4-${NV_LIBNPP_VERSION}
+ENV NV_LIBCUBLAS_VERSION 12.4.5.8-1
+ENV NV_LIBNCCL_PACKAGE_NAME libnccl
+ENV NV_LIBNCCL_PACKAGE_VERSION 2.21.5-1
+ENV NV_LIBNCCL_VERSION 2.21.5
+ENV NCCL_VERSION 2.21.5
+ENV NV_LIBNCCL_PACKAGE ${NV_LIBNCCL_PACKAGE_NAME}-${NV_LIBNCCL_PACKAGE_VERSION}+cuda12.4
+
+RUN dnf install -y \
+    cuda-libraries-12-4-${NV_CUDA_LIB_VERSION} \
+    cuda-nvtx-12-4-${NV_NVTX_VERSION} \
+    ${NV_LIBNPP_PACKAGE} \
+    libcublas-12-4-${NV_LIBCUBLAS_VERSION} \
+    ${NV_LIBNCCL_PACKAGE} \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf/*
+
+# Set these flags so that libraries can find the location of CUDA
+ENV XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/local/cuda \
+    XLA_TARGET="cuda120"
+
+# CUDA Devel image
+
+FROM cuda-runtime AS cuda-devel
+
+ENV NV_CUDA_LIB_VERSION 12.4.1-1
+ENV NV_NVPROF_VERSION 12.4.127-1
+ENV NV_NVPROF_DEV_PACKAGE cuda-nvprof-12-4-${NV_NVPROF_VERSION}
+ENV NV_CUDA_CUDART_DEV_VERSION 12.4.127-1
+ENV NV_NVML_DEV_VERSION 12.4.127-1
+ENV NV_LIBCUBLAS_DEV_VERSION 12.4.5.8-1
+ENV NV_LIBNPP_DEV_VERSION 12.2.5.30-1
+ENV NV_LIBNPP_DEV_PACKAGE libnpp-devel-12-4-${NV_LIBNPP_DEV_VERSION}
+ENV NV_LIBNCCL_DEV_PACKAGE_NAME libnccl-devel
+ENV NV_LIBNCCL_DEV_PACKAGE_VERSION 2.21.5-1
+ENV NCCL_VERSION 2.21.5
+ENV NV_LIBNCCL_DEV_PACKAGE ${NV_LIBNCCL_DEV_PACKAGE_NAME}-${NV_LIBNCCL_DEV_PACKAGE_VERSION}+cuda12.4
+ENV NV_CUDA_NSIGHT_COMPUTE_VERSION 12.4.1-1
+ENV NV_CUDA_NSIGHT_COMPUTE_DEV_PACKAGE cuda-nsight-compute-12-4-${NV_CUDA_NSIGHT_COMPUTE_VERSION}
+
+RUN dnf install -y \
+    cuda-command-line-tools-12-4-${NV_CUDA_LIB_VERSION} \
+    cuda-libraries-devel-12-4-${NV_CUDA_LIB_VERSION} \
+    cuda-minimal-build-12-4-${NV_CUDA_LIB_VERSION} \
+    cuda-cudart-devel-12-4-${NV_CUDA_CUDART_DEV_VERSION} \
+    ${NV_NVPROF_DEV_PACKAGE} \
+    cuda-nvml-devel-12-4-${NV_NVML_DEV_VERSION} \
+    libcublas-devel-12-4-${NV_LIBCUBLAS_DEV_VERSION} \
+    ${NV_LIBNPP_DEV_PACKAGE} \
+    ${NV_LIBNCCL_DEV_PACKAGE} \
+    ${NV_CUDA_NSIGHT_COMPUTE_DEV_PACKAGE} \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf/*
+
+ENV LIBRARY_PATH /usr/local/cuda/lib64/stubs
+
+
+########################################## 
+# Install InstructLab in Build container #
+##########################################
+
+FROM cuda-devel AS builder
+
+# InstructLab version
+ARG GIT_TAG=v0.18.4
+
+USER 0
+
+RUN dnf install -y libcudnn8 nvidia-driver-NVML nvidia-driver-cuda-libs && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf/*
+
+USER 1001
+
+RUN python3.11 -m pip install --force-reinstall nvidia-cuda-nvcc-cu12
+
+RUN export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64" \
+    && export CUDA_HOME=/usr/local/cuda \
+    && export PATH="/usr/local/cuda/bin:$PATH" \
+    && export XLA_TARGET=cuda120 \
+    && export XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/local/cuda
+
+RUN if [[ "$(uname -m)" != "aarch64" ]]; then export CFLAGS="-mno-avx"; fi && \
+    CMAKE_ARGS="-DLLAMA_CUBLAS=on" python3.11 -m pip install -r https://raw.githubusercontent.com/instructlab/instructlab/${GIT_TAG}/requirements.txt --force-reinstall --no-cache-dir llama-cpp-python
+RUN python3.11 -m pip install git+https://github.com/instructlab/instructlab.git@${GIT_TAG}
+
+
+##############################
+# Create final image         #
+##############################
+
+FROM cuda-runtime
+
+ARG CODESERVER_VERSION=v4.92.2
+
+ARG PYTHON=python3.11
+ENV PYTHON="${PYTHON}" \
+    APP_ROOT="/opt/app-root" \
+    VIRTUAL_ENV="${APP_ROOT}" \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_COMPILE=1 \
+    PS1="(app-root) \w\$ "
+
+COPY --from=builder --chown=1001:0 ${VIRTUAL_ENV} ${VIRTUAL_ENV}
+
+##############################
+# Install code-server        #
+##############################
 
 USER 0
 
@@ -21,11 +175,11 @@ RUN yum install -y "https://github.com/coder/code-server/releases/download/${COD
     yum -y clean all --enablerepo='*'
 
 
-#######################################################
-# Install NGINX to proxy VSCode and pass probes check #
-#######################################################
-ENV NGINX_VERSION=1.20 \
-    NGINX_SHORT_VER=120 \
+############################################################
+# Install NGINX to proxy code-server and pass probes check #
+############################################################
+ENV NGINX_VERSION=1.24 \
+    NGINX_SHORT_VER=124 \
     NGINX_CONFIGURATION_PATH=${APP_ROOT}/etc/nginx.d \
     NGINX_CONF_PATH=/etc/nginx/nginx.conf \
     NGINX_DEFAULT_CONF_PATH=${APP_ROOT}/etc/nginx.default.d \
@@ -35,17 +189,17 @@ ENV NGINX_VERSION=1.20 \
     NGINX_PERL_MODULE_PATH=${APP_ROOT}/etc/perl
 
 # Modules does not exist
-RUN INSTALL_PKGS="bind-utils nginx nginx-mod-stream nginx-mod-http-perl fcgiwrap initscripts chkconfig" && \
-    yum install -y https://download.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
+RUN yum -y module enable nginx:$NGINX_VERSION && \
+    INSTALL_PKGS="nss_wrapper bind-utils gettext hostname nginx nginx-mod-stream nginx-mod-http-perl fcgiwrap initscripts chkconfig supervisor" && \
     yum install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
     nginx -v 2>&1 | grep -qe "nginx/$NGINX_VERSION\." && echo "Found VERSION $NGINX_VERSION" && \
-    # spawn-fcgi is not in epel9 \
-    rpm -i --nodocs https://www.rpmfind.net/linux/fedora/linux/releases/37/Everything/x86_64/os/Packages/s/spawn-fcgi-1.6.3-23.fc37.x86_64.rpm && \
     yum -y clean all --enablerepo='*'
 
+COPY --chown=1001:0 supervisord/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
 # Copy extra files to the image.
-COPY nginx/root/ /
+COPY --chown=1001:0 nginx/root/ /
 
 # Changing ownership and user rights to support following use-cases:
 # 1) running container on OpenShift, whose default security model
@@ -76,9 +230,9 @@ RUN sed -i -f ${NGINX_APP_ROOT}/etc/nginxconf.sed ${NGINX_CONF_PATH} && \
     rpm-file-permissions
 
 ## Configure nginx
-COPY nginx/serverconf/ /opt/app-root/etc/nginx.default.d/
-COPY nginx/httpconf/ /opt/app-root/etc/nginx.d/
-COPY nginx/api/ /opt/app-root/api/
+COPY --chown=1001:0 nginx/serverconf/ /opt/app-root/etc/nginx.default.d/
+COPY --chown=1001:0 nginx/httpconf/ /opt/app-root/etc/nginx.d/
+COPY --chown=1001:0 nginx/api/ /opt/app-root/api/
 
 
 # Launcher
@@ -90,6 +244,8 @@ ENV SHELL /bin/bash
 WORKDIR /opt/app-root/src
 
 USER 1001
+
+RUN pip install --no-cache-dir nvitop==1.3.2
 
 CMD /opt/app-root/bin/run-code-server.sh
 
