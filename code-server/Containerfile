@@ -37,7 +37,7 @@ ENV TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
 ENV TORCH_CUDNN_V8_API_ENABLED=1
 
 ARG INSTRUCTLAB_PKG="instructlab[cuda]"
-ARG INSTRUCTLAB_VERSION='0.19.4'
+ARG INSTRUCTLAB_VERSION='0.20.1'
 
 RUN dnf -y install --best --nodocs --setopt=install_weak_deps=False dnf-plugins-core \
     && dnf config-manager --best --nodocs --setopt=install_weak_deps=False --save \
@@ -125,6 +125,7 @@ RUN dnf install -y --nodocs \
         cuda-minimal-build-${CUDA_DASHED_VERSION} \
         cuda-toolkit-${CUDA_DASHED_VERSION} \
         libcudnn${CUDNN_MAJOR_VERSION} \
+        libcudnn9-cuda-12 \
         libnccl \
         libcutensor2 \
     && dnf clean all \
@@ -182,11 +183,11 @@ RUN if [ "${INSTRUCTLAB_VERSION}" != "" ] ; then \
     fi \
     && pip install --upgrade pip \
     && pip install packaging wheel \
-    && pip install 'torch>=2.3.0,<2.4.0' 'psutil>=6.0.0' \
-    && pip install flash_attn --no-build-isolation \
+    && pip install torch==2.4.1 psutil==6.1.0 \
+    && pip install flash_attn==2.6.3 --no-build-isolation \
+    && pip install --no-deps llama_cpp_python[server]==0.2.79 -C cmake.args="-DLLAMA_CUDA=on" -C cmake.args="-DLLAMA_NATIVE=off" \
     && pip install "${INSTRUCTLAB_PKG}" -C cmake.args="-DLLAMA_CUDA=on" -C cmake.args="-DLLAMA_NATIVE=off" \
-    && pip install --force-reinstall --no-deps llama_cpp_python[server]==0.2.79 -C cmake.args="-DLLAMA_CUDA=on" -C cmake.args="-DLLAMA_NATIVE=off" \
-    && pip install vllm@git+https://github.com/opendatahub-io/vllm@2024.10.02 \
+    && pip install vllm@git+https://github.com/opendatahub-io/vllm@v0.6.2 \
     && pip install 'nvitop==1.3.2' \
     # Fix permissions to support pip in Openshift environments \
     && chmod -R g+w /opt/app-root/lib/python3.11/site-packages \
