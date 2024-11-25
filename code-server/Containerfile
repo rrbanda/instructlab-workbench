@@ -37,7 +37,7 @@ ENV TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
 ENV TORCH_CUDNN_V8_API_ENABLED=1
 
 ARG INSTRUCTLAB_PKG="instructlab[cuda]"
-ARG INSTRUCTLAB_VERSION='0.20.1'
+ARG INSTRUCTLAB_VERSION='0.21.0'
 
 RUN dnf -y install --best --nodocs --setopt=install_weak_deps=False dnf-plugins-core \
     && dnf config-manager --best --nodocs --setopt=install_weak_deps=False --save \
@@ -249,7 +249,7 @@ ENV CMAKE_INCLUDE_PATH="${PYTORCH_VISION_HOME}/include:${CMAKE_INCLUDE_PATH}"
 # Install code-server        #
 ##############################
 
-ARG CODESERVER_VERSION=v4.93.1
+ARG CODESERVER_VERSION=v4.95.3
 
 USER 0
 
