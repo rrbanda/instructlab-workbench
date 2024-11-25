@@ -1,6 +1,6 @@
 # Instructlab Workbenches
 
-Ready to use OpenShift AI custom workbench image, with fully included [InstructLab](https://github.com/instructlab/instructlab/tree/main) 0.20.1  and Code Server 4.93.1, and CUDA acceleration.
+Ready to use OpenShift AI custom workbench image, with fully included [InstructLab](https://github.com/instructlab/instructlab/tree/main) 0.21.0  and Code Server 4.95.3, and CUDA acceleration.
 
 This image can be used in OpenShift AI or locally using Podman if you have an NVidia GPU.
 
